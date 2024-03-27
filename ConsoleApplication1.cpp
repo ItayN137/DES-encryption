@@ -49,6 +49,17 @@ const int vector[16] = {
     1,1,2,2,2,2,2,2,1,2,2,2,2,2,2,1
 };
 
+const int IP_table[64] = {
+    58, 50, 42, 34, 26, 18, 10, 2,
+    60, 52, 44, 36, 28, 20, 12, 4,
+    62, 54, 46, 38, 30, 22, 14, 6,
+    64, 56, 48, 40, 32, 24, 16, 8,
+    57, 49, 41, 33, 25, 17, 9, 1,
+    59, 51, 43, 35, 27, 19, 11, 3,
+    61, 53, 45, 37, 29, 21, 13, 5,
+    63, 55, 47, 39, 31, 23, 15, 7
+};
+
 
 /// <summary>
 /// Displaying hexadecimal based number in binary based number.
@@ -93,7 +104,7 @@ char** create_blocks_from_data(char* data, int chunks) {
     }
 
     for (int i = 0; i < chunks; i++) {
-        dataArr[i] = (char*)malloc(17 * sizeof(char));
+        dataArr[i] = (char*)malloc(65 * sizeof(char));
         if (dataArr[i] == NULL) {
             fprintf(stderr, "Memory allocation failed.\n");
             return NULL;
@@ -101,8 +112,8 @@ char** create_blocks_from_data(char* data, int chunks) {
     }
 
     for (int i = 0; i < chunks; i++) {
-        memcpy(dataArr[i], data + (16 * i), 16);
-        dataArr[i][16] = '\0';
+        memcpy(dataArr[i], data + (64 * i), 64);
+        dataArr[i][64] = '\0';
     }
 
     return dataArr;
@@ -213,6 +224,36 @@ char** apply_PC2_to_keys(char** keys_arr) {
 
     return pc2_keys_arr;
 }
+
+char* apply_IP_to_data_block(char* data) {
+    char* IP_data = (char*)malloc(65 * sizeof(char)); // 64 bits + null terminator
+    if (IP_data == NULL) {
+        fprintf(stderr, "Memory allocation failed.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    for (int i = 0; i < 64; i++) {
+        IP_data[i] = data[IP_table[i] - 1]; // Apply IP permutation
+    }
+    IP_data[64] = '\0'; // Null-terminate the string
+
+    return IP_data;
+}
+
+char** apply_IP_to_data_array(char** dataArr, int chunks) {
+    char** IP_data_arr = (char**)malloc(chunks * sizeof(char*));
+    if (IP_data_arr == NULL) {
+        fprintf(stderr, "Memory allocation failed.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    for (int i = 0; i < chunks; i++) {
+        IP_data_arr[i] = apply_IP_to_data_block(dataArr[i]);
+    }
+
+    return IP_data_arr;
+}
+
 
 void free_keys_array(char** keys_arr, int num_keys) {
     for (int i = 0; i < num_keys; i++) {
@@ -382,13 +423,19 @@ int main() {
 
     //// -----------------------data creation part-----------------------
 
-    char** dataArr, **binaryDataArr;
+    char** dataArr, **ipData;
     char* binaryData = hex_to_binary(data);
-    chunks = ceil((double)strlen(data) / 16);
+    chunks = ceil((double)strlen(binaryData) / 64);
     printf("%s \n", binaryData);
     printf("%d \n", strlen(binaryData));
-    dataArr = create_blocks_from_data(data, chunks);
+    dataArr = create_blocks_from_data(binaryData, chunks);
+    printf("%s", "before IP: \n");
+    
     printRows(dataArr, chunks);
+    ipData = apply_IP_to_data_array(dataArr, chunks);
+    printf("%s", "after IP: \n");
+    printRows(ipData, chunks);
+
 
 
 
