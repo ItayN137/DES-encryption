@@ -948,7 +948,8 @@ int main() {
     data = get_ascii_hex(data);
     printf("%s", data);
     data = pad_string(data);
-    char* key = (char*)"133457799BBCDFF1";
+    char* key = (char*)"NVJdqu12";
+    key = get_ascii_hex(key);
 
     char* c0_key = (char*)malloc(REDUCTION_HALF_NUM_BITS + 1);
     char* d0_key = (char*)malloc(REDUCTION_HALF_NUM_BITS + 1);
