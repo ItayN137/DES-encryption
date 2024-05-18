@@ -763,6 +763,7 @@ void rotate_left_4_bits(int* bytes) {
 /// <param name="graph">Directed acyclic graph representing the constraints for subkey generation</param>
 void generate_subkeys(int initial_key[SUBKEY_LENGTH], int subkeys[NUM_SUBKEYS][SUBKEY_LENGTH], int graph[BYTE_RANGE][BYTE_RANGE]) {
     int count = 0;
+    int pseudo_random_seed = 1;  // Initial seed for LCG
 
     for (int i = 0; i < SUBKEY_LENGTH; i++) {
         subkeys[0][i] = initial_key[i];
@@ -779,7 +780,9 @@ void generate_subkeys(int initial_key[SUBKEY_LENGTH], int subkeys[NUM_SUBKEYS][S
         for (int i = 0; i < SUBKEY_LENGTH; i++) {
             int next_byte;
             do {
-                next_byte = rand() % BYTE_RANGE;
+                // Generate pseudo-random number using LCG
+                pseudo_random_seed = (1103515245 * pseudo_random_seed + 12345) % 32768;
+                next_byte = pseudo_random_seed % BYTE_RANGE;
             } while (!graph[current[i]][next_byte] || !is_byte_unique(subkeys, count, i, next_byte));
 
             current[i] = next_byte;
@@ -966,9 +969,9 @@ char* expension(char* data) {
 /// <remarks>Memory is allocated internally for intermediate data blocks and must be freed by the caller.</remarks>
 char* encryption_rounds(char* data, char** keys) {
     char* result_data = (char*)malloc((NUM_BITS + 1) * sizeof(char));
-    char* right_data = (char*)malloc(33 * sizeof(char));
-    char* left_data = (char*)malloc(33 * sizeof(char));
-    char* next_left_data = (char*)malloc(33 * sizeof(char));
+    char* right_data = (char*)malloc((HALF_NUM_BITS + 1) * sizeof(char));
+    char* left_data = (char*)malloc((HALF_NUM_BITS + 1) * sizeof(char));
+    char* next_left_data = (char*)malloc((HALF_NUM_BITS + 1) * sizeof(char));
 
     if (right_data == NULL || left_data == NULL) {
         printf("Memory allocation failed!\n");
@@ -1016,9 +1019,9 @@ char* encryption_rounds(char* data, char** keys) {
 /// <remarks>Memory is allocated internally for intermediate data blocks and must be freed by the caller.</remarks>
 char* decryption_rounds(char* data, char** keys) {
     char* result_data = (char*)malloc((NUM_BITS + 1) * sizeof(char));
-    char* right_data = (char*)malloc(33 * sizeof(char));
-    char* left_data = (char*)malloc(33 * sizeof(char));
-    char* next_left_data = (char*)malloc(33 * sizeof(char));
+    char* right_data = (char*)malloc((HALF_NUM_BITS + 1) * sizeof(char));
+    char* left_data = (char*)malloc((HALF_NUM_BITS + 1) * sizeof(char));
+    char* next_left_data = (char*)malloc((HALF_NUM_BITS + 1) * sizeof(char));
 
     if (right_data == NULL || left_data == NULL) {
         printf("Memory allocation failed!\n");
@@ -1075,7 +1078,7 @@ int main() {
     int size_of_data = 0, chunks;
     char* data = (char*)"hello world!";
     data = get_ascii_hex(data);
-    printf("%s", data);
+    //printf("%s", data);
     data = pad_string(data);
     char* key = (char*)"NVJdqu12";
     key = get_ascii_hex(key);
@@ -1158,6 +1161,7 @@ int main() {
 
     //// -----------------------encryption part--------------------------
 
+    
     dataArr = apply_IP_to_data_array(dataArr, chunks);
     //printf("%s", "after IP: \n");
     //printRows(dataArr, chunks);
