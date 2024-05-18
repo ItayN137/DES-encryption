@@ -5,11 +5,16 @@
 #define EXP_HALF_NUM_BITS 48
 #define REDUCTION_NUM_BITS 56
 #define REDUCTION_HALF_NUM_BITS 28
+#define SUBKEY_LENGTH 4
+#define NUM_SUBKEYS 16
+#define BYTE_RANGE 128
+#define BINARY_LENGTH 28
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 
 
 //// -----------------------tables part-----------------------
@@ -83,7 +88,7 @@ const int PC2_table[EXP_HALF_NUM_BITS] = {
 /// <param name="round">Round number (1-16)</param>
 /// <returns>Number of shifts for the corresponding round</returns>
 const int vector[QUARTER_NUM_BITS] = {
-    1,1,2,2,2,2,2,2,1,2,2,2,2,2,2,1
+    1,1,2,2,2,2,2,2,1,1,2,2,2,2,2,1
 };
 
 
@@ -663,31 +668,155 @@ char* rotate_left(const char* key, int rotations) {
 
 
 /// <summary>
-/// Generates half keys from the given first key using a rotation vector.
+/// Initializes a directed acyclic graph (DAG) represented by a 2D array,
+/// ensuring there are no self-loops.
 /// </summary>
-/// <param name="first_key">First key used for generation</param>
-/// <returns>Array of half keys</returns>
-/// <remarks>Memory is allocated internally for the array and keys, and must be freed by the caller.</remarks>
-char** generate_half_keys(char* first_key) {
-    char** half_keys = (char**)malloc(QUARTER_NUM_BITS * sizeof(char*));
-    if (half_keys == NULL) {
-        printf("Memory allocation failed!\n");
-        return NULL;
-    }
-
-    for (int i = 0; i < QUARTER_NUM_BITS; i++) {
-        half_keys[i] = (char*)malloc(REDUCTION_HALF_NUM_BITS * sizeof(char));
-        if (half_keys[i] == NULL) {
-            printf("Memory allocation failed!\n");
-            return NULL;
+/// <param name="graph">2D array representing the DAG</param>
+/// <remarks>
+/// Each element graph[i][j] indicates the existence of an edge from vertex i to vertex j.
+/// If i is not equal to j, the value is set to 1 (indicating an edge exists); otherwise, it is set to 0.
+/// </remarks>
+void initialize_graph(int graph[BYTE_RANGE][BYTE_RANGE]) {
+    for (int i = 0; i < BYTE_RANGE; i++) {
+        for (int j = 0; j < BYTE_RANGE; j++) {
+            if (i != j) {
+                graph[i][j] = 1;
+            }
+            else {
+                graph[i][j] = 0;
+            }
         }
     }
-    half_keys[0] = rotate_left(first_key, vector[0]);
-    for (int i = 1; i < QUARTER_NUM_BITS; i++) {
-        half_keys[i] = rotate_left(half_keys[i - 1], vector[i]);
+}
+
+
+/// <summary>
+/// Checks if a byte is unique in the given position among the previous subkeys generated.
+/// </summary>
+/// <param name="subkeys">2D array representing the previously generated subkeys</param>
+/// <param name="count">Number of subkeys generated so far</param>
+/// <param name="pos">Position in the subkey to check for uniqueness</param>
+/// <param name="byte">Byte value to check for uniqueness</param>
+/// <returns>1 if the byte is unique in the specified position among the previous subkeys; otherwise, 0</returns>
+int is_byte_unique(int subkeys[NUM_SUBKEYS][SUBKEY_LENGTH], int count, int pos, int byte) {
+    for (int i = 0; i < count; i++) {
+        if (subkeys[i][pos] == byte) {
+            return 0;
+        }
     }
-    
-    return half_keys;
+    return 1;
+}
+
+
+/// <summary>
+/// Converts a binary string to an array of bytes.
+/// </summary>
+/// <param name="binary">Binary string to convert</param>
+/// <param name="bytes">Array to store the resulting byte values</param>
+void binary_to_bytes(const char* binary, int* bytes) {
+    for (int i = 0; i < SUBKEY_LENGTH; i++) {
+        int byte = 0;
+        for (int j = 0; j < 7; j++) {
+            if (binary[i * 7 + j] == '1') {
+                byte |= (1 << (6 - j));
+            }
+        }
+        bytes[i] = byte;
+    }
+}
+
+
+/// <summary>
+/// Converts an array of bytes to a binary string.
+/// </summary>
+/// <param name="bytes">Array of bytes to convert</param>
+/// <param name="binary">Character array to store the resulting binary string</param>
+void bytes_to_binary(int* bytes, char* binary) {
+    for (int i = 0; i < SUBKEY_LENGTH; i++) {
+        for (int j = 0; j < 7; j++) {
+            binary[i * 7 + j] = (bytes[i] & (1 << (6 - j))) ? '1' : '0';
+        }
+    }
+    binary[BINARY_LENGTH] = '\0';
+}
+
+
+/// <summary>
+/// Performs a left rotation of 4 bits on an array of bytes.
+/// </summary>
+/// <param name="bytes">Array of bytes to rotate</param>
+void rotate_left_4_bits(int* bytes) {
+    unsigned int combined = (bytes[0] << 21) | (bytes[1] << 14) | (bytes[2] << 7) | bytes[3];
+    combined = (combined << 4) | (combined >> 24);
+    bytes[0] = (combined >> 21) & 0x7F;
+    bytes[1] = (combined >> 14) & 0x7F;
+    bytes[2] = (combined >> 7) & 0x7F;
+    bytes[3] = combined & 0x7F;
+}
+
+
+/// <summary>
+/// Generates subkeys based on an initial key and a directed acyclic graph.
+/// </summary>
+/// <param name="initial_key">Array representing the initial key</param>
+/// <param name="subkeys">2D array to store the generated subkeys</param>
+/// <param name="graph">Directed acyclic graph representing the constraints for subkey generation</param>
+void generate_subkeys(int initial_key[SUBKEY_LENGTH], int subkeys[NUM_SUBKEYS][SUBKEY_LENGTH], int graph[BYTE_RANGE][BYTE_RANGE]) {
+    int count = 0;
+
+    for (int i = 0; i < SUBKEY_LENGTH; i++) {
+        subkeys[0][i] = initial_key[i];
+    }
+    rotate_left_4_bits(subkeys[0]);
+    count++;
+
+    while (count < NUM_SUBKEYS) {
+        int current[SUBKEY_LENGTH];
+        for (int i = 0; i < SUBKEY_LENGTH; i++) {
+            current[i] = initial_key[i];
+        }
+
+        for (int i = 0; i < SUBKEY_LENGTH; i++) {
+            int next_byte;
+            do {
+                next_byte = rand() % BYTE_RANGE;
+            } while (!graph[current[i]][next_byte] || !is_byte_unique(subkeys, count, i, next_byte));
+
+            current[i] = next_byte;
+            subkeys[count][i] = next_byte;
+        }
+        count++;
+    }
+}
+
+
+/// <summary>
+/// Generates subkeys from a binary input string.
+/// </summary>
+/// <param name="binary_input">Binary input string</param>
+/// <returns>Dynamically allocated 2D array of characters representing the generated subkeys.
+/// Each row corresponds to a subkey, and each column represents a bit.</returns>
+/// <remarks>Memory allocated for the subkeys must be freed by the caller.</remarks>
+char** generate_subkeys_from_binary(const char* binary_input) {
+    srand(time(0));
+
+    int graph[BYTE_RANGE][BYTE_RANGE];
+    initialize_graph(graph);
+
+    int initial_key[SUBKEY_LENGTH];
+    binary_to_bytes(binary_input, initial_key);
+
+    int subkeys[NUM_SUBKEYS][SUBKEY_LENGTH];
+
+    generate_subkeys(initial_key, subkeys, graph);
+
+    char** binary_subkeys = (char**)malloc(NUM_SUBKEYS * sizeof(char*));
+    for (int i = 0; i < NUM_SUBKEYS; i++) {
+        binary_subkeys[i] = (char*)malloc((BINARY_LENGTH + 1) * sizeof(char));
+        bytes_to_binary(subkeys[i], binary_subkeys[i]);
+    }
+
+    return binary_subkeys;
 }
 
 
@@ -798,9 +927,9 @@ char* apply_s_boxes(char* data) {
     }
     int row, column;
     for (int i = 0; i < 8; i++) {
-        row = (data[i*6] -'0') * 2 + (data[(i * 6) + 5] - '0');
+        row = (data[i * 6] - '0') * 2 + (data[(i * 6) + 5] - '0');
         column = (data[(i * 6) + 1] - '0') * 8 + (data[(i * 6) + 2] - '0') * 4 + (data[(i * 6) + 3] - '0') * 2 + (data[(i * 6) + 4] - '0');
-        strcat(s_data,hex_to_binary_table[S_Box[i][row][column]]);
+        strcat(s_data, hex_to_binary_table[S_Box[i][row][column]]);
     }
     s_data[HALF_NUM_BITS] = '\0';
     //printf("\ndata after s box: %s", s_data);
@@ -837,9 +966,9 @@ char* expension(char* data) {
 /// <remarks>Memory is allocated internally for intermediate data blocks and must be freed by the caller.</remarks>
 char* encryption_rounds(char* data, char** keys) {
     char* result_data = (char*)malloc((NUM_BITS + 1) * sizeof(char));
-    char* right_data = (char*)malloc(33*sizeof(char));
-    char* left_data = (char*)malloc(33*sizeof(char));
-    char* next_left_data = (char*)malloc(33*sizeof(char));
+    char* right_data = (char*)malloc(33 * sizeof(char));
+    char* left_data = (char*)malloc(33 * sizeof(char));
+    char* next_left_data = (char*)malloc(33 * sizeof(char));
 
     if (right_data == NULL || left_data == NULL) {
         printf("Memory allocation failed!\n");
@@ -987,14 +1116,14 @@ int main() {
             return 1;
         }
     }
-    
+
 
     //// -----------------------key creation part-----------------------
     char* binary_key = hex_to_binary(key);
     //printf("key before PC1: %s\n", binary_key);
     char* pc1_key = doPC1(binary_key);
     //printf("key after PC1 in binary: %s\n", pc1_key);
-    
+
     memcpy(c0_key, pc1_key, REDUCTION_HALF_NUM_BITS);
     c0_key[REDUCTION_HALF_NUM_BITS] = '\0';
     memcpy(d0_key, pc1_key + REDUCTION_HALF_NUM_BITS, REDUCTION_HALF_NUM_BITS);
@@ -1003,8 +1132,8 @@ int main() {
     //printf("c0 key: %s\n", c0_key);
     //printf("d0 key: %s\n", d0_key);
 
-    c_keys_arr = generate_half_keys(c0_key);
-    d_keys_arr = generate_half_keys(d0_key);
+    c_keys_arr = generate_subkeys_from_binary(c0_key);
+    d_keys_arr = generate_subkeys_from_binary(d0_key);
     /*
     for (int i = 0; i < QUARTER_NUM_BITS; i++) {
         printf("c%d: %s \n", i+1, c_keys_arr[i]);
@@ -1017,7 +1146,7 @@ int main() {
 
     //// -----------------------data creation part-----------------------
 
-    char** dataArr, **ipData;
+    char** dataArr, ** ipData;
     char* binaryData = hex_to_binary(data);
     chunks = ceil((double)strlen(binaryData) / NUM_BITS);
     //printf("%s \n", binaryData);
@@ -1082,5 +1211,4 @@ int main() {
     free_keys_array(pc2_keys_arr, QUARTER_NUM_BITS);
     return 0;
 }
-
 
