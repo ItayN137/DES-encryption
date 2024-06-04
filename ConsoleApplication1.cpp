@@ -10,6 +10,8 @@
 #define BYTE_RANGE 128
 #define BINARY_LENGTH 28
 
+
+#include "DESAlgorithm.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -345,19 +347,23 @@ char* concatenate_blocks(char** dataArr, int chunks) {
 /// <remarks>The caller is responsible for freeing the memory allocated for the returned string.</remarks>
 char* get_ascii_hex(const char* input) {
     int len = strlen(input);
-    char* output = (char*)malloc(len * 2 + 1);
+    char* output = (char*)malloc(len * 2 + 1); // Allocate memory for hex representation
     if (output == NULL) {
         fprintf(stderr, "Memory allocation failed.\n");
         return NULL;
     }
 
     for (int i = 0; i < len; i++) {
-        sprintf(output + i * 2, "%02X", (unsigned char)input[i]);
+        unsigned char c = (unsigned char)input[i];
+        // Debugging output: print each character and its ASCII and hex values
+        //printf("Character: '%c', ASCII: %d, Hex: %02X\n", c, c, c);
+        sprintf(output + i * 2, "%02X", c);
     }
-    output[len * 2] = '\0';
+    output[len * 2] = '\0'; // Null-terminate the string
 
     return output;
 }
+
 
 
 /// <summary>
@@ -822,7 +828,6 @@ char** generate_subkeys_from_binary(const char* binary_input) {
     return binary_subkeys;
 }
 
-
 /// <summary>
 /// Generates full keys by concatenating left and right half keys.
 /// </summary>
@@ -1073,28 +1078,29 @@ void printRows(char** array, int numRows) {
     }
 }
 
-int main() {
+char* DESAlgorithm(char* data1, char* key1, int mode) {
     //// -----------------------variables initialization part-----------------------
+    char * result = NULL;
     int size_of_data = 0, chunks;
-    char* data = (char*)"hello world!";
-    data = get_ascii_hex(data);
+    char* data = data1;
+    if (mode == 1) data = get_ascii_hex(data);
     //printf("%s", data);
     data = pad_string(data);
-    char* key = (char*)"NVJdqu12";
+    char* key = key1;
     key = get_ascii_hex(key);
 
-    char* c0_key = (char*)malloc(REDUCTION_HALF_NUM_BITS + 1);
-    char* d0_key = (char*)malloc(REDUCTION_HALF_NUM_BITS + 1);
+    char* c0_key = (char*)malloc((REDUCTION_HALF_NUM_BITS + 1) * sizeof(char));
+    char* d0_key = (char*)malloc((REDUCTION_HALF_NUM_BITS + 1) * sizeof(char));
     if (c0_key == NULL || d0_key == NULL) {
         fprintf(stderr, "Memory allocation failed.\n");
-        return 1;
+        return 0;
     }
 
-    char** c_keys_arr = (char**)malloc(QUARTER_NUM_BITS);
-    char** d_keys_arr = (char**)malloc(QUARTER_NUM_BITS);
+    char** c_keys_arr = (char**)malloc(QUARTER_NUM_BITS * sizeof(char*));
+    char** d_keys_arr = (char**)malloc(QUARTER_NUM_BITS * sizeof(char*));
     if (c_keys_arr == NULL || d_keys_arr == NULL) {
         fprintf(stderr, "Memory allocation failed.\n");
-        return 1;
+        return 0;
     }
 
     for (int i = 0; i < QUARTER_NUM_BITS; i++) {
@@ -1102,21 +1108,21 @@ int main() {
         d_keys_arr[i] = (char*)malloc(REDUCTION_HALF_NUM_BITS);
         if (c_keys_arr[i] == NULL || d_keys_arr[i] == NULL) {
             fprintf(stderr, "Memory allocation failed.\n");
-            return 1;
+            return 0;
         }
     }
 
-    char** keys_arr = (char**)malloc(QUARTER_NUM_BITS);
+    char** keys_arr = (char**)malloc(QUARTER_NUM_BITS * sizeof(char*));
     if (keys_arr == NULL) {
         fprintf(stderr, "Memory allocation failed.\n");
-        return 1;
+        return 0;
     }
 
     for (int i = 0; i < QUARTER_NUM_BITS; i++) {
         keys_arr[i] = (char*)malloc(REDUCTION_HALF_NUM_BITS);
         if (keys_arr[i] == NULL) {
             fprintf(stderr, "Memory allocation failed.\n");
-            return 1;
+            return 0;
         }
     }
 
@@ -1161,44 +1167,43 @@ int main() {
 
     //// -----------------------encryption part--------------------------
 
-    
-    dataArr = apply_IP_to_data_array(dataArr, chunks);
-    //printf("%s", "after IP: \n");
-    //printRows(dataArr, chunks);
+    if (mode == 1) {
+        dataArr = apply_IP_to_data_array(dataArr, chunks);
+        //printf("%s", "after IP: \n");
+        //printRows(dataArr, chunks);
 
 
-    for (int i = 0; i < chunks; i++) {
-        dataArr[i] = encryption_rounds(dataArr[i], pc2_keys_arr);
+        for (int i = 0; i < chunks; i++) {
+            dataArr[i] = encryption_rounds(dataArr[i], pc2_keys_arr);
+        }
+
+        dataArr = apply_reverse_IP_to_data_array(dataArr, chunks);
+        for (int i = 0; i < chunks; i++) {
+            dataArr[i] = binary_to_hex(dataArr[i]);
+        }
+
+        printf("%s", "\nThe encrypted data: \n");
+        char* encrypted_data = concatenate_blocks(dataArr, chunks);
+        printf("%s\n", encrypted_data);
+        result = encrypted_data;
     }
+    if (mode == 0) {
 
-    dataArr = apply_reverse_IP_to_data_array(dataArr, chunks);
-    for (int i = 0; i < chunks; i++) {
-        dataArr[i] = binary_to_hex(dataArr[i]);
+        dataArr = apply_IP_to_data_array(dataArr, chunks);
+
+        for (int i = 0; i < chunks; i++) {
+            dataArr[i] = decryption_rounds(dataArr[i], pc2_keys_arr);
+        }
+
+        dataArr = apply_reverse_IP_to_data_array(dataArr, chunks);
+
+
+        char* concatenated = concatenate_blocks(dataArr, chunks);
+        concatenated = binary_to_hex(concatenated);
+        concatenated = get_hex_ascii(concatenated);
+        printf("\nThe decrypted data: \n %s", concatenated);
+        result = concatenated;
     }
-
-    printf("%s", "\nThe encrypted data: \n");
-    char* encrypted_data = concatenate_blocks(dataArr, chunks);
-    printf("%s\n", encrypted_data);
-
-
-    for (int i = 0; i < chunks; i++) {
-        dataArr[i] = hex_to_binary(dataArr[i]);
-    }
-
-    dataArr = apply_IP_to_data_array(dataArr, chunks);
-
-    for (int i = 0; i < chunks; i++) {
-        dataArr[i] = decryption_rounds(dataArr[i], pc2_keys_arr);
-    }
-
-    dataArr = apply_reverse_IP_to_data_array(dataArr, chunks);
-
-
-    char* concatenated = concatenate_blocks(dataArr, chunks);
-    concatenated = binary_to_hex(concatenated);
-    concatenated = get_hex_ascii(concatenated);
-    printf("\nThe decrypted data: \n %s", concatenated);
-
 
     //free all and avoid memory leaks
     free(binary_key);
@@ -1213,6 +1218,54 @@ int main() {
     free(d_keys_arr);
     free_keys_array(keys_arr, QUARTER_NUM_BITS);
     free_keys_array(pc2_keys_arr, QUARTER_NUM_BITS);
-    return 0;
+    return result;
 }
 
+
+
+int main() {
+    char msg[256];  // Buffer size of 256 for message
+    char key[9];    // Buffer size of 9 for key to accommodate 8 characters plus null terminator
+
+    printf("Enter the message: ");
+    if (fgets(msg, sizeof(msg), stdin) != NULL) {
+        // Remove the newline character if present
+        size_t len = strlen(msg);
+        if (len > 0 && msg[len - 1] == '\n') {
+            msg[len - 1] = '\0';
+        }
+    }
+
+    printf("Enter the key (8 characters): ");
+    if (fgets(key, sizeof(key), stdin) != NULL) {
+        // Remove the newline character if present
+        size_t len = strlen(key);
+        if (len > 0 && key[len - 1] == '\n') {
+            key[len - 1] = '\0';
+        }
+    }
+
+    // Ensure the key is exactly 8 characters long
+    if (strlen(key) != 8) {
+        printf("Key must be exactly 8 characters long.\n");
+        return 1;
+    }
+
+    int mode;
+    printf("Enter the mode (1 for encrypt, 0 for decrypt): ");
+    scanf("%d", &mode);
+    // Clear the newline character left by scanf
+    getchar();
+
+    // Call DESAlgorithm with the given data, key, and mode
+    char* result = DESAlgorithm(msg, key, mode);
+
+    if (result != NULL) {
+        printf("Result: %s\n", result);
+    }
+    else {
+        printf("An error occurred during the DES algorithm processing.\n");
+    }
+    free(result);
+    return 0;
+}
